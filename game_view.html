@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Shooter Game</title>
+    <style>
+        image, canvas {
+            user-select: none;
+            -ms-user-select: none;
+            -webkit-user-select: none;
+            -khtml-user-select: none;
+            -moz-user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-user-drag: none;
+
+            box-shadow: lightslategrey 5px 5px 10px;
+        }
+        body{
+            display: flex;
+            align-items: center;
+            flex-direction: column;
+        }
+    </style>
+    <link rel="shortcut icon" href="#">
+
+</head>
+
+<body>
+<!--    starting screen-->
+    <div id="start-screen" class="screen" style="position: absolute; z-index:3; display: block">
+        <h1>APPLE ATTACK!!!</h1>
+        <button class="startBtn">Start Game</button>
+        <p>Volume:</p>
+        <input id="volumeSlider" type="range" min="0" max="1" value="1" step="0.1">
+    </div>
+<!--    Game screen-->
+    <canvas id="bgCanvas" width="600px" height="900px" style="position: absolute; z-index:0; display: none" ></canvas>
+    <canvas id="playerCanvas" width="600px" height="900px" style="position: absolute; z-index:1; display: none"></canvas>
+    <canvas id="infoCanvas" width="600px" height="900px" style="position: absolute; z-index:2;display: none"></canvas>
+<!--    Game Over screen-->
+    <div id="gameover-screen" class="screen" style="position: absolute; z-index:4; display: none">
+        <h1>Game Over</h1>
+        <button class="restartBtn">Restart Game</button>
+        <p>Volume:</p>
+        <input id="volumeSliderEnd" type="range" min="0" max="1" value="1" step="0.1">
+        <p id="yourScore">Your score: </p>
+        <h2>Scores:</h2>
+        <ul id="list">
+        </ul>
+    </div>
+
+
+    <script src="https://code.jquery.com/jquery-3.1.1.js" integrity="sha256-16cdPddA6VdVInumRGo6IbivbERE8p7CQR3HzTBuELA=" crossorigin="anonymous"></script>
+    <script type="module">
+        import appleController from "./static/appleController.mjs";
+        import Projectile from "./static/Projectile.mjs";
+
+        let bgCanvas = document.querySelector("#bgCanvas");
+        let ctxBack = bgCanvas.getContext("2d");
+        let infoCanvas = document.querySelector("#infoCanvas");
+        let ctxInfo = infoCanvas.getContext("2d");
+        let plrCanvas = document.querySelector("#playerCanvas");
+        let ctxPlayer = plrCanvas.getContext("2d");
+
+        let mouseX = 0;
+        let mouseY = 0;
+
+        let x_midpoint = plrCanvas.width / 2;
+        let y_midpoint = plrCanvas.height -100;
+
+        let ship=document.createElement("img");
+        let bg=document.createElement("img");
+        ship.src="images/ship.png";
+        bg.src="images/bg.png"
+
+        //draw background
+        bg.onload=function (){
+            ctxBack.drawImage(bg,0,0);
+        };
+
+        let soundVolume=1;
+
+        const shootSound=new Audio("sounds/shoot.wav")
+        shootSound.volume=soundVolume;
+
+        let score=0;
+        let lives=3;
+
+        //spawning apples rate
+        let spawnTime=3000;
+
+        const projectiles=[];
+
+        const apples=new appleController(plrCanvas,lives,2);
+
+        let speedup=true;
+        let moreSpawn=true;
+
+        let spawnId;
+
+        function stopApples(){
+            clearInterval(spawnId);
+        }
+        function startApples(spawn){
+            if(spawnId!==null){
+                clearInterval(spawnId);
+            }
+            spawnId=window.setInterval(()=>{
+                apples.createApples();
+            },spawn)
+        }
+
+        function collision(projectile,apple){
+            const xDifference=apple.x-projectile.x;
+            const yDifference=apple.y-projectile.y;
+
+            const distance = Math.sqrt(Math.pow(xDifference,2)+Math.pow(yDifference,2));
+
+            if(distance<=100){
+                return true;
+            }
+            return false;
+        }
+
+        //game loop
+        function game(){
+            ctxPlayer.clearRect(0, 0, plrCanvas.width, plrCanvas.height);
+            ctxInfo.clearRect(0, 0, infoCanvas.width, infoCanvas.height);
+
+            updateShip();
+
+            apples.update(ctxPlayer);
+
+            lives=apples.getLives();
+
+            if(speedup===false && score%10!==0){
+                speedup=true;
+            }
+            if(moreSpawn===false && score%5!==0){
+                moreSpawn=true;
+            }
+
+            for(let i=projectiles.length-1;i>=0;i--){
+                const projectile =projectiles[i];
+                projectile.update(ctxPlayer);
+
+                //remove hidden projectiles
+                if(projectile.x+60<0||//left
+                    projectile.x-60>plrCanvas.width||//right
+                    projectile.y-60>plrCanvas.height||//top
+                    projectile.y+60<0){//bottom
+                    projectiles.splice(i,1);
+                }
+
+                for(let j=apples.appleMap.length-1;j>=0;j--){
+                    const apple=apples.appleMap[j];
+                    if(collision(apple,projectile)){
+                        projectiles.splice(i,1);
+                        apples.appleMap.splice(j,1);
+                        addScore();
+                    }
+                    if(score!==0 && score%10===0){
+                        if(speedup) {
+                            apples.setSpeed(0.5);
+                            speedup=false;
+                        }
+                    }
+                }
+            }
+            if(spawnTime>500) {
+                if (score!==0 && score % 5 === 0) {
+                    if(moreSpawn){
+                        spawnTime -= 200;
+                        startApples(spawnTime);
+                        moreSpawn=false;
+                    }
+                }
+            }
+            //display score and lives
+            drawScore();
+            drawLives();
+
+            let animationId=window.requestAnimationFrame(game);
+
+            if(lives<=0){
+                stopGame();
+                stopApples();
+                window.cancelAnimationFrame(animationId);
+            }
+        }
+
+        const restartBtn=document.querySelector('.restartBtn');
+        restartBtn.addEventListener('click',resetGame);
+
+        const startBtn=document.querySelector('.startBtn');
+        startBtn.addEventListener('click',resetGame);
+        function resetGame(){
+            toggleScreen('bgCanvas',true);
+            toggleScreen('playerCanvas',true);
+            toggleScreen('infoCanvas',true);
+            toggleScreen('start-screen',false);
+            toggleScreen('gameover-screen',false);
+
+            let sliderEnd=document.getElementById('volumeSliderEnd');
+
+            if(lives===0){
+                soundVolume=sliderEnd.value;
+                shootSound.volume=soundVolume;
+            }else{
+                soundVolume=document.getElementById("volumeSlider").value;
+                shootSound.volume=soundVolume;
+
+                sliderEnd.value=soundVolume;
+            }
+
+
+            while(apples.appleMap.length>0){
+                apples.appleMap.pop();
+            }
+            while(projectiles.length>0){
+                projectiles.pop();
+            }
+
+            spawnTime=3000
+            apples.speed=2;
+            startApples(spawnTime);
+
+            let paragraph = document.getElementById("yourScore");
+            paragraph.textContent = "Your score: ";
+
+            let list = document.getElementById("list");
+            while(list.firstChild){
+                list.removeChild(list.firstChild);
+            }
+
+            score=0;
+            apples.lives=3;
+
+            game();
+        }
+
+        function stopGame(){
+            toggleScreen('start-screen',false);
+            toggleScreen('bgCanvas',false);
+            toggleScreen('playerCanvas',false);
+            toggleScreen('infoCanvas',false);
+            toggleScreen('gameover-screen',true);
+
+            const yourScore=document.querySelector("#yourScore");
+            yourScore.appendChild(document.createTextNode(score));
+
+            manageDatabase()
+        }
+
+        function toggleScreen(id,toggle) {
+            let element = document.getElementById(id);
+            let display = ( toggle ) ? 'block' : 'none';
+            element.style.display = display;
+        }
+
+        function manageDatabase(){
+            $.ajax({
+                url:"/receiveScore",
+                type:"POST",
+                data: {
+                    'score':score,
+                }
+            });
+            $.ajax({
+                url:"/sendDatabase",
+                type:"GET",
+                data: {data:"data"},
+                dataType: "JSON",
+                contentType: "application/json; charset=utf-8"
+            }).done(function(data){
+                var list= document.getElementById("list")
+                data.data.forEach(row=>{
+                    var entry=document.createElement("li")
+                    const myJSON=JSON.stringify(row);
+                    const myObj = JSON.parse(myJSON);
+                    entry.appendChild(document.createTextNode("Score"+myObj.id+":   "+myObj.score))
+                    list.appendChild(entry)
+                })
+            }).catch(err=>{
+                console.error(err.message);
+            });
+        }
+
+
+        function drawScore(){
+            ctxInfo.font = "25px Helvetica";
+            ctxInfo.strokeStyle="#332941";
+            ctxInfo.lineWidth=4;
+            ctxInfo.strokeText("Score: " + score, 8, 25);
+            ctxInfo.fillStyle = "#86A7FC";
+            ctxInfo.fillText("Score: " + score, 8, 25);
+        }
+        function drawLives(){
+            ctxInfo.font = "25px Helvetica";
+            ctxInfo.strokeStyle="#402B3A";
+            ctxInfo.lineWidth=4;
+            ctxInfo.strokeText("Lives: " + lives, infoCanvas.width - 95, 25);
+            ctxInfo.fillStyle = "#FF9BD2";
+            ctxInfo.fillText("Lives: " + lives, infoCanvas.width - 95, 25);
+        }
+        function updateShip() {
+            let vx = mouseX - x_midpoint;
+            let vy = mouseY - y_midpoint;
+
+            // shift starting point to middle of canvas
+            ctxPlayer.setTransform(1, 0, 0, 1, x_midpoint, y_midpoint);
+
+            // rotate based on the mouse position
+            ctxPlayer.rotate(Math.atan2(vy, vx));
+
+            ctxPlayer.drawImage(ship,-ship.height/2,-ship.width/6.5,  ship.width/2,  ship.height/2);
+            // console.log(diffX+" "+diffY);
+
+            // reset transform
+            ctxPlayer.setTransform(1, 0, 0, 1, 0, 0);
+        }
+
+        //moving
+        infoCanvas.addEventListener("mousemove", setMousePosition, false);
+        function setMousePosition(e) {
+            e.preventDefault()
+            let bounds = infoCanvas.getBoundingClientRect();
+            //clientX/Y coordinates of mouse
+            mouseX = e.pageX-bounds.left;
+            mouseY = e.pageY - bounds.top;
+        }
+
+        function addScore(){
+            score++;
+        }
+
+        //shooting
+        infoCanvas.addEventListener("mousedown",shootBullet,false);
+        function shootBullet(e){
+            if(e.button===0){
+                let vx = mouseX - x_midpoint;
+                let vy = mouseY - y_midpoint;
+
+                let dist=Math.sqrt((vx * vx) + (vy * vy));
+
+                let dx = vx / dist * 3;
+                let dy = vy / dist * 3;
+
+                projectiles.push(new Projectile(plrCanvas,300,800,dx,dy));
+
+                shootSound.currentTime=0;
+                shootSound.play();
+
+            }
+        }
+    </script>
+
+</body>
+
+</html>
